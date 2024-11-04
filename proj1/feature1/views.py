@@ -8,4 +8,6 @@ def home_page(request):
 
 def product_page(request):
     return render(request, "product_list.html")
+def aab():
+    return 1
 
