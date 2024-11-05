@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 from django.contrib.auth.decorators import login_required, permission_required
 from django.shortcuts import render, get_object_or_404, redirect
 from .models import Product, Category, Position
@@ -38,3 +39,18 @@ def move_product(request, pk):
     else:
         form = MoveProductForm(instance=product)
     return render(request, 'move_product_form.html', {'form': form, 'product': product})
+=======
+from django.shortcuts import render
+from .models import Product
+from django.http import HttpResponse
+
+def home_page(request):
+    #products = Product.objects.all()
+    return render(request, 'home.html')
+
+def product_page(request):
+    return render(request, "product_list.html")
+def aab():
+    return 1
+
+>>>>>>> 5ae4491009477a99d242e8a76732abf50092fc5b
