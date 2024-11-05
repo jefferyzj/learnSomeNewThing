@@ -3,18 +3,19 @@ from django.shortcuts import render, get_object_or_404, redirect
 from .models import Product, Category, Position
 from .forms import ProductForm, MoveProductForm
 
-@login_required
+def home(request):
+    return render(request, 'home.html')
+
 def product_list(request):
     products = Product.objects.all()
     return render(request, 'product_list.html', {'products': products})
 
-@login_required
+
 def product_detail(request, pk):
     product = get_object_or_404(Product, pk=pk)
     return render(request, 'product_detail.html', {'product': product})
 
-@login_required
-@permission_required('yourapp.add_product')
+
 def add_product(request):
     if request.method == "POST":
         form = ProductForm(request.POST)
@@ -25,8 +26,6 @@ def add_product(request):
         form = ProductForm()
     return render(request, 'product_form.html', {'form': form})
 
-@login_required
-@permission_required('yourapp.change_product')
 def move_product(request, pk):
     product = get_object_or_404(Product, pk=pk)
     if request.method == "POST":

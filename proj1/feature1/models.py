@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import UniqueConstraint
 
 class Category(models.Model):
     name = models.CharField(max_length=100)
@@ -14,20 +15,24 @@ class Rack(models.Model):
 
 class Layer(models.Model):
     rack = models.ForeignKey(Rack, on_delete=models.CASCADE)
-    number = models.IntegerField(default=1)
+    number = models.IntegerField()
 
     class Meta:
-        unique_together = ('rack', 'number')
+        constraints = [
+            UniqueConstraint(fields=['rack', 'number'], name='unique_rack_layer')
+        ]
 
     def __str__(self):
         return f"Rack {self.rack.number} - Layer {self.number}"
 
 class Position(models.Model):
     layer = models.ForeignKey(Layer, on_delete=models.CASCADE)
-    number = models.IntegerField(default=1)
+    number = models.IntegerField()
 
     class Meta:
-        unique_together = ('layer', 'number')
+        constraints = [
+            UniqueConstraint(fields=['layer', 'number'], name='unique_layer_position')
+        ]
 
     def __str__(self):
         return f"Rack {self.layer.rack.number} - Layer {self.layer.number} - Position {self.number}"
@@ -52,9 +57,10 @@ class Product(models.Model):
     position = models.ForeignKey(Position, on_delete=models.SET_NULL, null=True, blank=True)
 
     def save(self, *args, **kwargs):
-        if self.process_status != 'basic_check':
+        # Avoid setting position to None if it's already None
+        if self.process_status != 'basic_check' and self.position is not None:
             self.position = None
-        super(Product, self).save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.SN
