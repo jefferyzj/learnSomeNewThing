@@ -1,39 +1,60 @@
-from django.contrib.auth.decorators import login_required, permission_required
 from django.shortcuts import render, get_object_or_404, redirect
-from .models import Product, Category, Position
-from .forms import ProductForm, MoveProductForm
+from django.views import View
+from .models import Product, Category, Rack, Layer, Position
+from .forms import ProductForm, MoveProductForm, CategoryForm, RackForm, LayerForm, PositionForm
 
 def home(request):
     return render(request, 'home.html')
 
-def product_list(request):
-    products = Product.objects.all()
-    return render(request, 'product_list.html', {'products': products})
+class ManageCategoriesView(View):
+    template_name = 'manage_categories.html'
 
+    def get(self, request):
+        categories = Category.objects.all()
+        form = CategoryForm()
+        return render(request, self.template_name, {'categories': categories, 'form': form})
 
-def product_detail(request, pk):
-    product = get_object_or_404(Product, pk=pk)
-    return render(request, 'product_detail.html', {'product': product})
-
-
-def add_product(request):
-    if request.method == "POST":
-        form = ProductForm(request.POST)
+    def post(self, request):
+        form = CategoryForm(request.POST)
         if form.is_valid():
-            product = form.save()
-            return redirect('product_detail', pk=product.pk)
-    else:
-        form = ProductForm()
-    return render(request, 'product_form.html', {'form': form})
+            form.save()
+            return redirect('manage_categories')
+        categories = Category.objects.all()
+        return render(request, self.template_name, {'categories': categories, 'form': form})
 
-def move_product(request, pk):
-    product = get_object_or_404(Product, pk=pk)
-    if request.method == "POST":
-        form = MoveProductForm(request.POST, instance=product)
-        if form.is_valid():
-            product.position = form.cleaned_data['new_position']
-            product.save()
-            return redirect('product_detail', pk=product.pk)
-    else:
-        form = MoveProductForm(instance=product)
-    return render(request, 'move_product_form.html', {'form': form, 'product': product})
+class ProductManageView(View):
+    template_name = 'product_form.html'
+
+    def get(self, request, pk=None):
+        if pk:
+            product = get_object_or_404(Product, pk=pk)
+            form = ProductForm(instance=product)
+            context = {'form': form, 'product': product}
+        else:
+            form = ProductForm()
+            context = {'form': form}
+        return render(request, self.template_name, context)
+
+    def post(self, request, pk=None):
+        if pk:
+            product = get_object_or_404(Product, pk=pk)
+            form = ProductForm(request.POST, instance=product)
+            if form.is_valid():
+                product = form.save(commit=False)
+                product.position = form.cleaned_data.get('new_position') or product.position
+                product.save()
+                return redirect('manage_product')
+            context = {'form': form, 'product': product}
+        else:
+            form = ProductForm(request.POST)
+            if form.is_valid():
+                form.save()
+                return redirect('manage_product')
+            context = {'form': form}
+        return render(request, self.template_name, context)
+
+    def delete(self, request, pk):
+        product = get_object_or_404(Product, pk=pk)
+        product.delete()
+        return redirect('manage_product')
+
