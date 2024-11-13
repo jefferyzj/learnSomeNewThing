@@ -16,7 +16,7 @@ class Rack(models.Model):
     def create_rack_with_layers_and_spaces(name, num_layers, num_spaces_per_layer):
         rack, created = Rack.objects.get_or_create(name=name)
         for layer_number in range(1, num_layers + 1):
-            layer, layer_created = Layer.objects.get_or_create(rack=rack, layer_number=layer_number)
+            layer, _ = Layer.objects.get_or_create(rack=rack, layer_number=layer_number)
             for space_number in range(1, num_spaces_per_layer + 1):
                 Space.objects.get_or_create(layer=layer, space_number=space_number)
         return rack
@@ -48,7 +48,7 @@ class Location(models.Model):
 
 class Status(models.Model):
     name = models.CharField(max_length=50)
-    order = models.IntegerField(unique=True)  # Custom order field
+    possible_next_statuses = models.ManyToManyField('self', blank=True, related_name='previous_statuses', symmetrical=False)
 
     def __str__(self):
         return self.name
@@ -76,7 +76,7 @@ class Product(models.Model):
     damage_description = models.TextField(blank=True, null=True)
     status = models.ForeignKey(Status, related_name='products', on_delete=models.CASCADE)
     tasks = models.ManyToManyField(Task, through='ProductTask')
-    location = models.OneToOneField(Location, on_delete=models.CASCADE, related_name='product')
+    location = models.OneToOneField(Location, on_delete=models.CASCADE, related_name='product', null = True, blank=True)
 
     def __str__(self):
         return self.SN
@@ -104,16 +104,13 @@ class Product(models.Model):
 
     def update_status_if_tasks_completed(self):
         if not self.tasks.filter(producttask__is_completed=False, task__can_be_skipped=False).exists():
-            next_status = self.get_next_status()
-            if next_status:
-                self.status = next_status
+            next_statuses = self.get_next_statuses()
+            if next_statuses.count() == 1:
+                self.status = next_statuses.first()
                 super().save()
 
-    def get_next_status(self):
-        #still need to figure out the logic to determine next status
-        current_status_order = self.status.order
-        next_status = Status.objects.filter(order__gt=current_status_order).order_by('order').first()
-        return next_status
+    def get_next_statuses(self):
+        return self.status.possible_next_statuses.all()
 
     def assign_location(self, rack, layer, space):
         location, created = Location.objects.get_or_create(rack=rack, layer=layer, space=space)

@@ -78,3 +78,27 @@ class ProductTaskForm(forms.ModelForm):
         widgets = {
             'result': forms.Select(choices=[('no_detection', 'No Detection'), ('test_done', 'Test Done')]),
         }
+
+class StatusForm(forms.ModelForm):
+    possible_next_statuses = forms.ModelMultipleChoiceField(
+        queryset=Status.objects.all(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        label="Possible Next Statuses"
+    )
+
+    class Meta:
+        model = Status
+        fields = ['name', 'possible_next_statuses']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk:
+            self.fields['possible_next_statuses'].initial = self.instance.possible_next_statuses.all()
+
+    def save(self, commit=True):
+        status = super().save(commit=False)
+        if commit:
+            status.save()
+            self.save_m2m()
+        return status
