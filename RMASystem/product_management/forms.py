@@ -1,5 +1,5 @@
 from django import forms
-from .models import Product, Position, Category, Rack, Layer, Status, Task, ProductTask, StatusTask
+from .models import Product, Category, Rack, Layer, Space, Status, Task, ProductTask, StatusTask, Location
 
 class CategoryForm(forms.ModelForm):
     class Meta:
@@ -16,8 +16,8 @@ class RackForm(forms.ModelForm):
         if commit:
             for layer_number in range(1, 7):  # Create 6 layers
                 layer = Layer.objects.create(rack=rack, layer_number=layer_number)
-                for position_number in range(1, 21):  # Create 20 positions for each layer
-                    Position.objects.create(layer=layer, position_number=position_number)
+                for space_number in range(1, 21):  # Create 20 spaces for each layer
+                    Space.objects.create(layer=layer, space_number=space_number)
         return rack
 
 class TaskForm(forms.ModelForm):
@@ -31,29 +31,45 @@ class StatusTaskForm(forms.ModelForm):
         fields = ['status', 'task']
 
 class ProductForm(forms.ModelForm):
-    new_position = forms.ModelChoiceField(queryset=Position.objects.all(), required=False)
+    rack = forms.ModelChoiceField(queryset=Rack.objects.all(), required=False)
+    layer = forms.ModelChoiceField(queryset=Layer.objects.all(), required=False)
+    space = forms.ModelChoiceField(queryset=Space.objects.all(), required=False)
 
     class Meta:
         model = Product
-        fields = ['SN', 'category', 'is_hot', 'is_damaged', 'damage_description', 'status', 'position', 'new_position']
+        fields = ['SN', 'category', 'is_hot', 'is_damaged', 'damage_description', 'status', 'rack', 'layer', 'space']
 
     def clean(self):
         cleaned_data = super().clean()
         status = cleaned_data.get('status')
-        position = cleaned_data.get('position')
-        new_position = cleaned_data.get('new_position')
+        rack = cleaned_data.get('rack')
+        layer = cleaned_data.get('layer')
+        space = cleaned_data.get('space')
         product = self.instance
 
+        # Check if all required tasks are completed before changing the status
         if status != product.status:
-            # Ensure all non-skippable tasks are completed or skipped before allowing status change
             incomplete_tasks = product.tasks.filter(producttask__is_completed=False, task__can_be_skipped=False)
             if incomplete_tasks.exists():
                 raise forms.ValidationError("All required tasks must be completed or removed before changing the status.")
 
-        if status and status.name == 'RMA sorting' and new_position is None:
-            raise forms.ValidationError("Position must be set during the 'RMA sorting' process.")
-
         return cleaned_data
+
+    def save(self, commit=True):
+        product = super().save(commit=False)
+        rack = self.cleaned_data.get('rack')
+        layer = self.cleaned_data.get('layer')
+        space = self.cleaned_data.get('space')
+
+        if rack and layer and space:
+            try:
+                product.assign_location(rack, layer, space)
+            except ValueError as e:
+                self.add_error('space', str(e))
+
+        if commit:
+            product.save()
+        return product
 
 class ProductTaskForm(forms.ModelForm):
     class Meta:
