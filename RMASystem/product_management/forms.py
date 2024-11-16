@@ -39,12 +39,13 @@ class SpaceForm(forms.ModelForm):
 class TaskForm(forms.ModelForm):
     class Meta:
         model = Task
-        fields = ['action', 'description', 'can_be_skipped']
+        fields = ['action', 'description', 'can_be_skipped', 'note']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['description'].widget = forms.Textarea(attrs={'rows': 3})
         self.fields['can_be_skipped'].widget = forms.CheckboxInput(attrs={'class': 'form-check-input'})
+        self.fields['note'].widget = forms.Textarea(attrs={'rows': 3})
 
 class StatusForm(forms.ModelForm):
     possible_next_statuses = forms.ModelMultipleChoiceField(

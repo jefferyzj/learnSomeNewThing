@@ -2,6 +2,9 @@ from django.db import models
 from django.utils import timezone
 import uuid
 from django.utils import timezone
+from django.db import models
+from django.core.validators import RegexValidator
+from django.utils import timezone
 
 class Category(models.Model):
     name = models.CharField(max_length=100)
@@ -56,14 +59,37 @@ class Status(models.Model):
     def __str__(self):
         return self.name
 
+
 class Task(models.Model):
-    action = models.CharField(max_length=100, help_text="Action to be performed in this task", default="Default Action")
-    description = models.TextField(help_text="Detailed description of the task")
-    can_be_skipped = models.BooleanField(default=False, help_text="Indicates if the task can be skipped")
-    result = models.TextField(default="Action Not Yet Done", help_text="Result of the task")
+    action = models.CharField(
+        max_length=100, 
+        help_text="Action to be performed in this task", 
+        default="Default Action"
+    )
+    description = models.TextField(
+        help_text="Detailed description of the task", 
+        blank=True, 
+        null=True
+    )
+    can_be_skipped = models.BooleanField(
+        default=False, 
+        help_text="Indicates if the task can be skipped"
+    )
+    result = models.TextField(
+        default="Action Not Yet Done", 
+        help_text="Result of the task", 
+        blank=True, 
+        null=True
+    )
+    note = models.TextField(
+        help_text="User can write down some notes on this task", 
+        blank=True, 
+        null=True
+    )
 
     def __str__(self):
         return self.action
+
 
 class StatusTask(models.Model):
     status = models.ForeignKey(Status, related_name='status_tasks', on_delete=models.CASCADE)
@@ -80,7 +106,19 @@ class Product(models.Model):
         ('zfa', 'ZFA')
     ]
 
-    SN = models.CharField(max_length=100, unique=True)
+    SN = models.CharField(
+        primary_key= True,
+        max_length=13,
+        unique=True,
+        validators=[
+            RegexValidator(
+                regex='^\d{13}$',
+                message='SN must be exactly 13 digits',
+                code='invalid_sn'
+            )
+        ],
+        help_text="Serial number must be exactly 13 digits"
+    )
     category = models.ForeignKey(Category, related_name='products', on_delete=models.CASCADE)
     priority_level = models.CharField(max_length=10, choices=PRIORITY_LEVEL_CHOICES, default='normal', help_text="Indicates if the unit is Normal, Hot, or ZFA")
     description = models.TextField(blank=True, help_text="Notes or description of the product")
@@ -88,6 +126,13 @@ class Product(models.Model):
     tasks = models.ManyToManyField(Task, through='ProductTask')
     location = models.OneToOneField(Location, on_delete=models.CASCADE, related_name='product', null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['SN'], name='unique_sn'),
+            models.CheckConstraint(check=models.Q(SN__regex=r'^\d{13}$'), name='check_sn_digits'),
+            models.UniqueConstraint(fields=['location'], name='unique_location')
+        ]
 
     def __str__(self):
         current_task_action = self.tasks.filter(producttask__is_completed=False).first().action if self.tasks.filter(producttask__is_completed=False).exists() else "No ongoing task"
@@ -104,7 +149,6 @@ class Product(models.Model):
         if is_new or previous_status != self.status:
             self.assign_tasks_for_status()
 
-
     def assign_tasks_for_status(self):
         # Fetch predefined tasks from the StatusTask model
         status_tasks = StatusTask.objects.filter(status=self.status)
@@ -117,7 +161,6 @@ class Product(models.Model):
     def add_non_required_task(self, task):
         # Allow the same task to be added multiple times
         ProductTask.objects.create(product=self, task=task, is_default=False, timestamp=timezone.now())
-
 
     def get_next_statuses(self):
         return self.status.possible_next_statuses.all()
