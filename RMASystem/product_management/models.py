@@ -1,10 +1,7 @@
 from django.db import models
 from django.utils import timezone
-import uuid
-from django.utils import timezone
-from django.db import models
 from django.core.validators import RegexValidator
-from django.utils import timezone
+import uuid
 
 class Category(models.Model):
     name = models.CharField(max_length=100)
@@ -47,7 +44,9 @@ class Location(models.Model):
     space = models.ForeignKey(Space, on_delete=models.CASCADE)
 
     class Meta:
-        unique_together = ('rack', 'layer', 'space')
+        constraints = [
+            models.UniqueConstraint(fields=['rack', 'layer', 'space'], name='unique_location')
+        ]
 
     def __str__(self):
         return f'Rack {self.rack.name} - Layer {self.layer.layer_number} - Space {self.space.space_number}'
@@ -58,7 +57,6 @@ class Status(models.Model):
 
     def __str__(self):
         return self.name
-
 
 class Task(models.Model):
     action = models.CharField(
@@ -90,14 +88,12 @@ class Task(models.Model):
     def __str__(self):
         return self.action
 
-
 class StatusTask(models.Model):
     status = models.ForeignKey(Status, related_name='status_tasks', on_delete=models.CASCADE)
     task = models.ForeignKey(Task, related_name='task_statuses', on_delete=models.CASCADE)
 
     def __str__(self):
         return f'{self.status.name} - {self.task.action}'
-
 
 class Product(models.Model):
     PRIORITY_LEVEL_CHOICES = [
@@ -220,7 +216,6 @@ class Product(models.Model):
             })
         return history
 
-
 class ProductTask(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     task = models.ForeignKey(Task, on_delete=models.CASCADE)
@@ -232,8 +227,6 @@ class ProductTask(models.Model):
 
     def __str__(self):
         return f'{self.product.SN} - {self.task.action} (UUID: {self.unique_id})'
-
-
 
 
 class ResultOfStatus(models.Model):
@@ -249,3 +242,4 @@ class ResultOfStatus(models.Model):
 
 
 
+  
