@@ -32,7 +32,7 @@ class Location(models.Model):
 
 class Status(StatusModel):
     STATUS = STATUS_CHOICES
-    status = models.CharField(choices=STATUS, default=STATUS.new, max_length=100)
+    status = models.CharField(choices=STATUS, default=STATUS['new'], max_length=100)
     name = models.CharField(max_length=50)
     possible_next_statuses = models.ManyToManyField('self', blank=True, related_name='previous_statuses', symmetrical=False)
 
@@ -73,10 +73,10 @@ class StatusTask(models.Model):
     status = models.ForeignKey(Status, related_name='status_tasks', on_delete=models.CASCADE)
     task = models.ForeignKey(Task, related_name='task_statuses', on_delete=models.CASCADE)
     is_predefined = models.BooleanField(default=True, help_text="Indicates if the task is predefined for this status")
-    order = models.IntegerField(default=0, help_text="Order of the task within the status")
+    order = models.IntegerField(default=0, help_text="Order of the task within the status", unique=True)
 
     def __str__(self):
-        return f'{self.status.name} - {self.task.action}'
+        return f'- The task {self.task.action} under - status {self.status.name} - with the order {self.order}'
 
 class Product(TimeStampedModel, SoftDeletableModel):
     SN = models.CharField(
@@ -95,8 +95,8 @@ class Product(TimeStampedModel, SoftDeletableModel):
     category = models.ForeignKey(Category, related_name='products', on_delete=models.CASCADE)
     priority_level = models.CharField(max_length=10, choices=PRIORITY_LEVEL_CHOICES, default='normal', help_text="Indicates if the unit is Normal, Hot, or ZFA")
     description = models.TextField(blank=True, help_text="Notes or description of the product")
-    status = models.ForeignKey(Status, related_name='products', on_delete=models.CASCADE)
-    tasks = models.ManyToManyField(Task, through='ProductTask')
+    current_status = models.ForeignKey(Status, related_name='products', on_delete=models.CASCADE, default="new")
+    current_task = models.ForeignKey(Task, related_name='current_products', on_delete=models.SET_NULL, null=True, blank=True)
     location = models.OneToOneField(Location, on_delete=models.CASCADE, related_name='product', null=True, blank=True)
 
     class Meta:
@@ -108,18 +108,36 @@ class Product(TimeStampedModel, SoftDeletableModel):
 
     def __str__(self):
         current_task_action = self.tasks.filter(producttask__is_completed=False).order_by('producttask__order').first().action if self.tasks.filter(producttask__is_completed=False).exists() else "No ongoing task"
-        return f'Product SN: {self.SN} | Priority: {self.get_priority_level_display()} | Current Status: {self.status.name} | Action: {current_task_action}'
+        return f'Product SN: {self.SN} | Priority: {self.priority_level} | Current Status: {self.current_status.name} | Action: {current_task_action}'
 
     def save(self, *args, **kwargs):
         is_new = not self.pk
         previous_status = None
-        if not is_new:
-            previous_status = Product.objects.get(pk=self.pk).status
+
+        if is_new:
+            if not self.current_status:
+                # Set the default status to "RMA Sorting" if the product is new and no status is provided
+                rma_sorting_status, created = Status.objects.get_or_create(name="RMA Sorting")
+                self.current_status = rma_sorting_status
+        else:
+            previous_status = Product.objects.get(pk=self.pk).current_status
 
         super().save(*args, **kwargs)
-
-        if is_new or previous_status != self.status:
+        #under a init status, assign predefined tasks to the product and locate the current task
+        if is_new or previous_status != self.current_status:
             self.assign_predefined_tasks_by_status()
+            self.locate_current_task()
+
+    def locate_current_task(self):
+        # Locate the first uncompleted task to the current_task field in the case the status of product is just updated
+        first_uncompleted_task = ProductTask.objects.filter(product=self, is_completed=False).order_by('task__statustask__order').first()
+        if first_uncompleted_task:
+            self.current_task = first_uncompleted_task.task
+        else:
+            self.current_task = None
+        self.save(update_fields=['current_task'])
+
+
 
     def assign_predefined_tasks_by_status(self):
         # Fetch predefined tasks from the StatusTask model
@@ -134,26 +152,56 @@ class Product(TimeStampedModel, SoftDeletableModel):
         # Allow the same task to be added multiple times, add the task to the ProductTask model
         ProductTask.objects.create(product=self, task=task, is_default=False, timestamp=timezone.now())
         
+        # Calculate the order for the new StatusTask, with the number of tasks already assigned to the status of the product.
+        current_task_count = StatusTask.objects.filter(status=self.status, task__producttask__product=self).count()
+        order = current_task_count + 1
+        
         # Add the task to the StatusTask model and set it as predefined for the status if needed
-        StatusTask.objects.get_or_create(status=self.status, task=task, defaults={'is_predefined': set_as_predefined_of_status})
+        StatusTask.objects.get_or_create(
+            status=self.status, 
+            task=task, 
+            defaults={'is_predefined': set_as_predefined_of_status, 'order': order}
+        )
 
-    def get_next_order(self):
-        # Get the next order value for a new task
-        max_order = self.tasks.through.objects.filter(product=self).aggregate(models.Max('order'))['order__max']
-        return (max_order or 0) + 1
-
-    def get_all_tasks(self):
-        # Retrieve all tasks associated with this product, ordered by the custom order field
-        return self.tasks.filter(producttask__is_completed=False).order_by('producttask__order')
-
+    def get_all_tasks(self, only_not_completed_yet=False):
+        # Retrieve all statuses of this product ordered by created timestamp
+        statuses = Status.objects.filter(products=self).order_by('created')
+        
+        all_tasks = []
+        for status in statuses:
+            # Retrieve tasks within each status ordered by StatusTask order
+            if only_not_completed_yet:
+                tasks = Task.objects.filter(
+                    producttask__product=self,
+                    producttask__is_completed=False,
+                    producttask__task__statustask__status=status
+                ).order_by('producttask__task__statustask__order')
+            else:
+                tasks = Task.objects.filter(
+                    producttask__product=self,
+                    producttask__task__statustask__status=status
+                ).order_by('producttask__task__statustask__order')
+            
+            all_tasks.extend(tasks)
+        
+        return all_tasks
+        
     def get_ongoing_task(self):
         # Retrieve the first uncompleted task, ordered by the custom order field
-        ongoing_task = self.tasks.filter(producttask__is_completed=False).order_by('producttask__order').first()
-        return ongoing_task
-
-    def remove_task(self, task):
-        # Remove a task from the product
-        ProductTask.objects.filter(product=self, task=task).delete()
+        return self.current_task
+    
+    # Implement the function to skip a task. Basically, skip a task of a product is just write "skipped" in the result of the action, and update the is_completed field to True.
+    def skip_task(self, task):
+        # Skip a task and update the result of the task
+        ProductTask.objects.filter(product=self, task=task).update(
+            is_completed=True, 
+            is_skipped=True,
+            result="Skipped")
+        # Update the current_task if the skipped task is the current task
+        if self.current_task == task:
+            self.current_task = None
+            self.save()
+        
 
     def insert_task(self, task, position):
         # Insert a task at a specific position, reordering other tasks
@@ -210,6 +258,7 @@ class ProductTask(TimeStampedModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     task = models.ForeignKey(Task, on_delete=models.CASCADE)
     is_completed = models.BooleanField(default=False)
+    is_skipped = models.BooleanField(default=False)
     is_default = models.BooleanField(default=True, help_text="Indicates if the task was added automatically")
     timestamp = models.DateTimeField(default=timezone.now, editable=False)
     unique_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
