@@ -51,8 +51,8 @@ class Task(models.Model):
         null=True
     )
     can_be_skipped = models.BooleanField(
-        default=False, 
-        help_text="Indicates if the task can be skipped"
+        default=True, 
+        help_text="Indicates if the task can be skipped, default is True"
     )
     result = models.TextField(
         default="Action Not Yet Done", 
@@ -72,6 +72,8 @@ class Task(models.Model):
 class StatusTask(models.Model):
     status = models.ForeignKey(Status, related_name='status_tasks', on_delete=models.CASCADE)
     task = models.ForeignKey(Task, related_name='task_statuses', on_delete=models.CASCADE)
+    is_predefined = models.BooleanField(default=True, help_text="Indicates if the task is predefined for this status")
+    order = models.IntegerField(default=0, help_text="Order of the task within the status")
 
     def __str__(self):
         return f'{self.status.name} - {self.task.action}'
@@ -105,7 +107,7 @@ class Product(TimeStampedModel, SoftDeletableModel):
         ]
 
     def __str__(self):
-        current_task_action = self.tasks.filter(producttask__is_completed=False).first().action if self.tasks.filter(producttask__is_completed=False).exists() else "No ongoing task"
+        current_task_action = self.tasks.filter(producttask__is_completed=False).order_by('producttask__order').first().action if self.tasks.filter(producttask__is_completed=False).exists() else "No ongoing task"
         return f'Product SN: {self.SN} | Priority: {self.get_priority_level_display()} | Current Status: {self.status.name} | Action: {current_task_action}'
 
     def save(self, *args, **kwargs):
@@ -117,20 +119,48 @@ class Product(TimeStampedModel, SoftDeletableModel):
         super().save(*args, **kwargs)
 
         if is_new or previous_status != self.status:
-            self.assign_tasks_for_status()
+            self.assign_predefined_tasks_by_status()
 
-    def assign_tasks_for_status(self):
+    def assign_predefined_tasks_by_status(self):
         # Fetch predefined tasks from the StatusTask model
-        status_tasks = StatusTask.objects.filter(status=self.status)
+        status_tasks_predefined = StatusTask.objects.filter(status=self.status, is_predefined=True).order_by('order')
 
-        for status_task in status_tasks:
+        for status_task in status_tasks_predefined:
             task = status_task.task
-            # Allow the same task to be added multiple times
+            # Use the order from the StatusTask model
             ProductTask.objects.create(product=self, task=task, is_default=True, timestamp=timezone.now())
 
-    def add_non_required_task(self, task):
-        # Allow the same task to be added multiple times
+    def assign_tasks(self, task, set_as_predefined_of_status=False):
+        # Allow the same task to be added multiple times, add the task to the ProductTask model
         ProductTask.objects.create(product=self, task=task, is_default=False, timestamp=timezone.now())
+        
+        # Add the task to the StatusTask model and set it as predefined for the status if needed
+        StatusTask.objects.get_or_create(status=self.status, task=task, defaults={'is_predefined': set_as_predefined_of_status})
+
+    def get_next_order(self):
+        # Get the next order value for a new task
+        max_order = self.tasks.through.objects.filter(product=self).aggregate(models.Max('order'))['order__max']
+        return (max_order or 0) + 1
+
+    def get_all_tasks(self):
+        # Retrieve all tasks associated with this product, ordered by the custom order field
+        return self.tasks.filter(producttask__is_completed=False).order_by('producttask__order')
+
+    def get_ongoing_task(self):
+        # Retrieve the first uncompleted task, ordered by the custom order field
+        ongoing_task = self.tasks.filter(producttask__is_completed=False).order_by('producttask__order').first()
+        return ongoing_task
+
+    def remove_task(self, task):
+        # Remove a task from the product
+        ProductTask.objects.filter(product=self, task=task).delete()
+
+    def insert_task(self, task, position):
+        # Insert a task at a specific position, reordering other tasks
+        tasks = list(self.get_all_tasks())
+        tasks.insert(position, task)
+        for index, task in enumerate(tasks):
+            ProductTask.objects.filter(product=self, task=task).update(order=index)
 
     def get_next_statuses(self):
         return self.status.possible_next_statuses.all()
@@ -183,10 +213,9 @@ class ProductTask(TimeStampedModel):
     is_default = models.BooleanField(default=True, help_text="Indicates if the task was added automatically")
     timestamp = models.DateTimeField(default=timezone.now, editable=False)
     unique_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
-
+    
     def __str__(self):
         return f'{self.product.SN} - {self.task.action} (UUID: {self.unique_id})'
-
 class ResultOfStatus(TimeStampedModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='status_results')
     status = models.ForeignKey(Status, on_delete=models.CASCADE, related_name='status_results')
