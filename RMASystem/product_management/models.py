@@ -45,7 +45,7 @@ class Location(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=['rack', 'layer', 'space'], name='unique_location')
+            models.UniqueConstraint(fields=['rack', 'layer', 'space'], name='unique_location_rack_layer_space')
         ]
 
     def __str__(self):
