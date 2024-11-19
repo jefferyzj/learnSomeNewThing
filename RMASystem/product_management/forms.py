@@ -1,7 +1,7 @@
 from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Submit
-from .models import Product, Category, Status, Task, ProductTask, StatusTask, Location
+from .models import Product, Category, Status, Task, ProductTask, StatusTask, Location, StatusTransition
 
 class CategoryForm(forms.ModelForm):
     class Meta:
@@ -17,7 +17,18 @@ class CategoryForm(forms.ModelForm):
 class StatusForm(forms.ModelForm):
     class Meta:
         model = Status
-        fields = ['name']
+        fields = ['status', 'description',]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.add_input(Submit('submit', 'Submit'))
+
+class StatusTransitionForm(forms.ModelForm):
+    class Meta:
+        model = StatusTransition
+        fields = ['from_status', 'to_status']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -39,7 +50,7 @@ class TaskForm(forms.ModelForm):
 class ProductTaskForm(forms.ModelForm):
     class Meta:
         model = ProductTask
-        fields = ['product', 'task', 'is_completed']
+        fields = ['product', 'task', 'is_completed', 'is_skipped', 'is_default']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -50,7 +61,7 @@ class ProductTaskForm(forms.ModelForm):
 class StatusTaskForm(forms.ModelForm):
     class Meta:
         model = StatusTask
-        fields = ['status', 'task']
+        fields = ['status', 'task', 'is_predefined', 'order']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -63,7 +74,7 @@ class ProductForm(forms.ModelForm):
 
     class Meta:
         model = Product
-        fields = ['SN', 'category', 'priority_level', 'description', 'status', 'location']
+        fields = ['SN', 'category', 'priority_level', 'description', 'current_status', 'current_task', 'location']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -73,11 +84,11 @@ class ProductForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
-        status = cleaned_data.get('status')
+        current_status = cleaned_data.get('current_status')
         product = self.instance
 
         # Check if all required tasks are completed before changing the status
-        if status != product.status:
+        if current_status != product.current_status:
             incomplete_tasks = product.tasks.filter(producttask__is_completed=False, task__can_be_skipped=False)
             if incomplete_tasks.exists():
                 raise forms.ValidationError("All required tasks must be completed or removed before changing the status.")

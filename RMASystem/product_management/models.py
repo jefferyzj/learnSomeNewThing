@@ -33,11 +33,19 @@ class Location(models.Model):
 class Status(StatusModel):
     STATUS = STATUS_CHOICES
     status = models.CharField(choices=STATUS, default=STATUS['new'], max_length=100)
-    name = models.CharField(max_length=50)
-    possible_next_statuses = models.ManyToManyField('self', blank=True, related_name='previous_statuses', symmetrical=False)
+    description = models.TextField(blank=True, null=True)
+    
+    def __str__(self):
+        return self.status
+
+#use to define the possible transition between statuses  
+class StatusTransition(models.Model):
+    from_status = models.ForeignKey(Status, related_name='transitions_from', on_delete=models.CASCADE)
+    to_status = models.ForeignKey(Status, related_name='transitions_to', on_delete=models.CASCADE)
 
     def __str__(self):
-        return self.name
+        return f'{self.from_status} -> {self.to_status}'
+
 
 class Task(models.Model):
     action = models.CharField(
@@ -95,8 +103,8 @@ class Product(TimeStampedModel, SoftDeletableModel):
     category = models.ForeignKey(Category, related_name='products', on_delete=models.CASCADE)
     priority_level = models.CharField(max_length=10, choices=PRIORITY_LEVEL_CHOICES, default='normal', help_text="Indicates if the unit is Normal, Hot, or ZFA")
     description = models.TextField(blank=True, help_text="Notes or description of the product")
-    current_status = models.ForeignKey(Status, related_name='products', on_delete=models.CASCADE, default="new")
-    current_task = models.ForeignKey(Task, related_name='current_products', on_delete=models.SET_NULL, null=True, blank=True)
+    current_status = models.ForeignKey(Status, related_name='ALL_products', on_delete=models.CASCADE, default="new")
+    current_task = models.ForeignKey(Task, related_name='All_products', on_delete=models.SET_NULL, null=True, blank=True)
     location = models.OneToOneField(Location, on_delete=models.CASCADE, related_name='product', null=True, blank=True)
 
     class Meta:
