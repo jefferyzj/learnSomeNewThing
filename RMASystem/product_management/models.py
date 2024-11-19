@@ -108,7 +108,7 @@ class Product(models.Model):
         unique=True,
         validators=[
             RegexValidator(
-                regex='^\d{13}$',
+                regex=r'^\d{13}$',
                 message='SN must be exactly 13 digits',
                 code='invalid_sn'
             )
@@ -205,7 +205,7 @@ class Product(models.Model):
                 {
                     "action": task.action,
                     "result": task.result,
-                    "created_at": task.producttask_set.get(product=self).created_at
+                    "created_at": task.producttask.get(product=self).created_at
                 }
                 for task in tasks
             ]
@@ -236,10 +236,5 @@ class ResultOfStatus(models.Model):
     created_at = models.DateTimeField(default=timezone.now, editable=False)
     unique_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
 
-
     def __str__(self):
         return f'{self.product.SN} - {self.status.name} Result'
-
-
-
-  

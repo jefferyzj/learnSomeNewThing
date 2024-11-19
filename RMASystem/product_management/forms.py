@@ -1,10 +1,18 @@
 from django import forms
+from crispy_forms.helper import FormHelper
+from crispy_forms.layout import Submit
 from .models import Product, Category, Rack, Layer, Space, Status, Task, ProductTask, StatusTask
 
 class CategoryForm(forms.ModelForm):
     class Meta:
         model = Category
         fields = ['name']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.add_input(Submit('submit', 'Submit'))
 
 class RackForm(forms.ModelForm):
     num_layers = forms.IntegerField(required=False, min_value=1, label="Number of Layers")
@@ -13,6 +21,12 @@ class RackForm(forms.ModelForm):
     class Meta:
         model = Rack
         fields = ['name']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.add_input(Submit('submit', 'Submit'))
 
     def save(self, commit=True):
         rack = super().save(commit=commit)
@@ -31,55 +45,66 @@ class LayerForm(forms.ModelForm):
         model = Layer
         fields = ['rack', 'layer_number']
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.add_input(Submit('submit', 'Submit'))
+
 class SpaceForm(forms.ModelForm):
     class Meta:
         model = Space
         fields = ['layer', 'space_number']
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.add_input(Submit('submit', 'Submit'))
+
+class StatusForm(forms.ModelForm):
+    class Meta:
+        model = Status
+        fields = ['name']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.add_input(Submit('submit', 'Submit'))
+
 class TaskForm(forms.ModelForm):
     class Meta:
         model = Task
-        fields = ['action', 'description', 'can_be_skipped', 'note']
+        fields = ['action', 'description', 'can_be_skipped', 'result', 'note']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['description'].widget = forms.Textarea(attrs={'rows': 3})
-        self.fields['can_be_skipped'].widget = forms.CheckboxInput(attrs={'class': 'form-check-input'})
-        self.fields['note'].widget = forms.Textarea(attrs={'rows': 3})
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.add_input(Submit('submit', 'Submit'))
 
-class StatusForm(forms.ModelForm):
-    possible_next_statuses = forms.ModelMultipleChoiceField(
-        queryset=Status.objects.all(),
-        required=False,
-        widget=forms.CheckboxSelectMultiple,
-        label="Possible Next Statuses"
-    )
-
+class ProductTaskForm(forms.ModelForm):
     class Meta:
-        model = Status
-        fields = ['name', 'possible_next_statuses']
+        model = ProductTask
+        fields = ['product', 'task', 'is_completed']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if self.instance.pk:
-            self.fields['possible_next_statuses'].initial = self.instance.possible_next_statuses.all()
-
-    def save(self, commit=True):
-        status = super().save(commit=False)
-        if commit:
-            status.save()
-            self.save_m2m()
-        return status
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.add_input(Submit('submit', 'Submit'))
 
 class StatusTaskForm(forms.ModelForm):
     class Meta:
         model = StatusTask
         fields = ['status', 'task']
 
-class ProductTaskForm(forms.ModelForm):
-    class Meta:
-        model = ProductTask
-        fields = ['product', 'task', 'is_completed']
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.add_input(Submit('submit', 'Submit'))
 
 class ProductForm(forms.ModelForm):
     rack = forms.ModelChoiceField(queryset=Rack.objects.all(), required=False)
@@ -89,6 +114,12 @@ class ProductForm(forms.ModelForm):
     class Meta:
         model = Product
         fields = ['SN', 'category', 'priority_level', 'description', 'status', 'rack', 'layer', 'space']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.add_input(Submit('submit', 'Submit'))
 
     def clean(self):
         cleaned_data = super().clean()
@@ -108,16 +139,7 @@ class ProductForm(forms.ModelForm):
 
     def save(self, commit=True):
         product = super().save(commit=False)
-        rack = self.cleaned_data.get('rack')
-        layer = self.cleaned_data.get('layer')
-        space = self.cleaned_data.get('space')
-
-        if rack and layer and space:
-            try:
-                product.assign_location(rack, layer, space)
-            except ValueError as e:
-                self.add_error('space', str(e))
-
         if commit:
             product.save()
+            self.save_m2m()
         return product
