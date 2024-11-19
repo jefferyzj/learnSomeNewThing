@@ -1,8 +1,8 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.generic import View, DetailView, ListView, UpdateView, CreateView
 from django.urls import reverse_lazy
-from .models import Product, ProductTask, Category, ResultOfStatus, Task
-from .forms import ProductForm, ProductTaskForm, TaskForm, StatusTaskForm
+from .models import Product, ProductTask, Category, ResultOfStatus, Task, Location
+from .forms import ProductForm, ProductTaskForm, TaskForm, StatusTaskForm, LocationForm
 
 class ProductListView(ListView):
     model = Product
@@ -58,3 +58,16 @@ class AddTaskView(CreateView):
 
     def get_success_url(self):
         return reverse_lazy('product_edit', kwargs={'sn': self.kwargs['sn']})
+
+class LocationCreateView(CreateView):
+    model = Location
+    form_class = LocationForm
+    template_name = 'location_form.html'
+
+    def get_success_url(self):
+        return reverse_lazy('location_list')
+
+class LocationListView(ListView):
+    model = Location
+    template_name = 'locations.html'
+    context_object_name = 'locations'

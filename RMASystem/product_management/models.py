@@ -1,7 +1,9 @@
 from django.db import models
 from django.utils import timezone
 from django.core.validators import RegexValidator
+from model_utils.models import TimeStampedModel, SoftDeletableModel, StatusModel
 import uuid
+from .utilhelpers import PRIORITY_LEVEL_CHOICES, STATUS_CHOICES
 
 class Category(models.Model):
     name = models.CharField(max_length=100)
@@ -9,49 +11,28 @@ class Category(models.Model):
     def __str__(self):
         return self.name
 
-class Rack(models.Model):
-    name = models.CharField(max_length=100)
-
-    def __str__(self):
-        return self.name
-
-    @staticmethod
-    def create_rack_with_layers_and_spaces(name, num_layers, num_spaces_per_layer):
-        rack, created = Rack.objects.get_or_create(name=name)
-        for layer_number in range(1, num_layers + 1):
-            layer, _ = Layer.objects.get_or_create(rack=rack, layer_number=layer_number)
-            for space_number in range(1, num_spaces_per_layer + 1):
-                Space.objects.get_or_create(layer=layer, space_number=space_number)
-        return rack
-
-class Layer(models.Model):
-    rack = models.ForeignKey(Rack, related_name='layers', on_delete=models.CASCADE)
-    layer_number = models.IntegerField()
-
-    def __str__(self):
-        return f'Rack {self.rack.name} - Layer {self.layer_number}'
-
-class Space(models.Model):
-    layer = models.ForeignKey(Layer, related_name='spaces', on_delete=models.CASCADE)
-    space_number = models.IntegerField()
-
-    def __str__(self):
-        return f'Layer {self.layer.layer_number} - Space {self.space_number}'
-
 class Location(models.Model):
-    rack = models.ForeignKey(Rack, on_delete=models.CASCADE)
-    layer = models.ForeignKey(Layer, on_delete=models.CASCADE)
-    space = models.ForeignKey(Space, on_delete=models.CASCADE)
+    rack_name = models.CharField(max_length=100, default='None Rack')
+    layer_number = models.IntegerField(default=-1)
+    space_number = models.IntegerField(default=-1)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=['rack', 'layer', 'space'], name='unique_location_rack_layer_space')
+            models.UniqueConstraint(fields=['rack_name', 'layer_number', 'space_number'], name='unique_location_constraint')
         ]
 
     def __str__(self):
-        return f'Rack {self.rack.name} - Layer {self.layer.layer_number} - Space {self.space.space_number}'
+        return f'Rack {self.rack_name} - Layer {self.layer_number} - Space {self.space_number}'
 
-class Status(models.Model):
+    @staticmethod
+    def create_rack_with_layers_and_spaces(rack_name, num_layers, num_spaces_per_layer):
+        for layer_number in range(1, num_layers + 1):
+            for space_number in range(1, num_spaces_per_layer + 1):
+                Location.objects.get_or_create(rack_name=rack_name, layer_number=layer_number, space_number=space_number)
+
+class Status(StatusModel):
+    STATUS = STATUS_CHOICES
+    status = models.CharField(choices=STATUS, default=STATUS.new, max_length=100)
     name = models.CharField(max_length=50)
     possible_next_statuses = models.ManyToManyField('self', blank=True, related_name='previous_statuses', symmetrical=False)
 
@@ -95,15 +76,9 @@ class StatusTask(models.Model):
     def __str__(self):
         return f'{self.status.name} - {self.task.action}'
 
-class Product(models.Model):
-    PRIORITY_LEVEL_CHOICES = [
-        ('normal', 'Normal'),
-        ('hot', 'Hot'),
-        ('zfa', 'ZFA')
-    ]
-
+class Product(TimeStampedModel, SoftDeletableModel):
     SN = models.CharField(
-        primary_key= True,
+        primary_key=True,
         max_length=13,
         unique=True,
         validators=[
@@ -121,13 +96,12 @@ class Product(models.Model):
     status = models.ForeignKey(Status, related_name='products', on_delete=models.CASCADE)
     tasks = models.ManyToManyField(Task, through='ProductTask')
     location = models.OneToOneField(Location, on_delete=models.CASCADE, related_name='product', null=True, blank=True)
-    created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=['SN'], name='unique_sn'),
-            models.CheckConstraint(check=models.Q(SN__regex=r'^\d{13}$'), name='check_sn_digits'),
-            models.UniqueConstraint(fields=['location'], name='unique_location')
+            models.UniqueConstraint(fields=['SN'], name='unique_sn_constraint'),
+            models.CheckConstraint(check=models.Q(SN__regex=r'^\d{13}$'), name='check_sn_digits_constraint'),
+            models.UniqueConstraint(fields=['location'], name='unique_product_location_constraint')
         ]
 
     def __str__(self):
@@ -161,20 +135,6 @@ class Product(models.Model):
     def get_next_statuses(self):
         return self.status.possible_next_statuses.all()
 
-    def assign_location(self, rack, layer, space):
-        location, created = Location.objects.get_or_create(rack=rack, layer=layer, space=space)
-        if Product.objects.filter(location=location).exclude(pk=self.pk).exists():
-            raise ValueError(f"Location {location} is already occupied by another product.")
-        self.location = location
-        self.save()
-
-    def assign_location_by_numbers(self, rack_name, layer_number, space_number):
-        rack, created = Rack.objects.get_or_create(name=rack_name)
-        layer, created = Layer.objects.get_or_create(rack=rack, layer_number=layer_number)
-        space, created = Space.objects.get_or_create(layer=layer, space_number=space_number)
-        
-        self.assign_location(rack, layer, space)
-
     def generate_result_of_status(self):
         # Collect results of completed tasks and actions of uncompleted tasks
         completed_tasks = self.tasks.filter(producttask__is_completed=True, producttask__task__status_tasks__status=self.status)
@@ -197,15 +157,15 @@ class Product(models.Model):
         return result_of_status
 
     def list_status_history(self):
-        status_results = ResultOfStatus.objects.filter(product=self).order_by('created_at')
+        status_results = ResultOfStatus.objects.filter(product=self).order_by('created')
         history = []
         for result in status_results:
-            tasks = self.tasks.filter(producttask__status=result.status).order_by('producttask__created_at')
+            tasks = self.tasks.filter(producttask__status=result.status).order_by('producttask__created')
             task_details = [
                 {
                     "action": task.action,
                     "result": task.result,
-                    "created_at": task.producttask.get(product=self).created_at
+                    "created_at": task.producttask_set.get(product=self).created
                 }
                 for task in tasks
             ]
@@ -216,11 +176,10 @@ class Product(models.Model):
             })
         return history
 
-class ProductTask(models.Model):
+class ProductTask(TimeStampedModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     task = models.ForeignKey(Task, on_delete=models.CASCADE)
     is_completed = models.BooleanField(default=False)
-    created_at = models.DateTimeField(default=timezone.now, editable=False)
     is_default = models.BooleanField(default=True, help_text="Indicates if the task was added automatically")
     timestamp = models.DateTimeField(default=timezone.now, editable=False)
     unique_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
@@ -228,12 +187,10 @@ class ProductTask(models.Model):
     def __str__(self):
         return f'{self.product.SN} - {self.task.action} (UUID: {self.unique_id})'
 
-
-class ResultOfStatus(models.Model):
+class ResultOfStatus(TimeStampedModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='status_results')
     status = models.ForeignKey(Status, on_delete=models.CASCADE, related_name='status_results')
     summary_result = models.TextField(blank=True, null=True, help_text="Summary of the results for this status")
-    created_at = models.DateTimeField(default=timezone.now, editable=False)
     unique_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
 
     def __str__(self):
