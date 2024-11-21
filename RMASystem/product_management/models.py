@@ -142,7 +142,6 @@ class ProductTask(TimeStampedModel):
             self.product.current_task = self.product.locate_current_task()
             self.product.save(update_fields=['current_task'])
         
-    
 class ProductStatus(TimeStampedModel):
     product = models.ForeignKey('Product', related_name='status_history_of_product', on_delete=models.CASCADE)
     status = models.ForeignKey(Status, related_name='products_under_status', on_delete=models.CASCADE)
