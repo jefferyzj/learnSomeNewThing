@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import ProductListView, ProductDetailView, ProductUpdateView, ProductTaskView, AddTaskView
+from .views import ProductListView, ProductDetailView, ProductUpdateView, ProductTaskView, AddTaskView, StatusTransitionView
 
 urlpatterns = [
     path('products/', ProductListView.as_view(), name='products'),
@@ -9,5 +9,6 @@ urlpatterns = [
     path('task/<int:task_id>/edit/', ProductTaskView.as_view(), name='edit_task'),
     path('task/<int:task_id>/skip/', ProductTaskView.as_view(), name='skip_task'),
     path('products/<str:sn>/add_task/', AddTaskView.as_view(), name='add_task'),
+    path('products/<int:product_id>/transition/', StatusTransitionView.as_view(), name='transition_status'),
     # Other URL patterns
 ]

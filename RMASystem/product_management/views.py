@@ -1,8 +1,10 @@
 from django.shortcuts import render, get_object_or_404, redirect
-from django.views.generic import View, DetailView, ListView, UpdateView, CreateView
+from django.views.generic import View, DetailView, ListView, UpdateView, CreateView, FormView
 from django.urls import reverse_lazy
 from .models import Product, ProductTask, Category, ResultOfStatus, Task, Location
 from .forms import ProductForm, ProductTaskForm, TaskForm, StatusTaskForm, LocationForm
+from .models import Product, Status, StatusTransition
+from .forms import StatusTransitionForm
 
 class ProductListView(ListView):
     model = Product
@@ -71,3 +73,32 @@ class LocationListView(ListView):
     model = Location
     template_name = 'locations.html'
     context_object_name = 'locations'
+
+
+
+class StatusTransitionView(FormView):
+    form_class = StatusTransitionForm
+    template_name = 'transition_status.html'
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        product_id = self.kwargs['product_id']
+        self.product = get_object_or_404(Product, pk=product_id)
+        kwargs['product'] = self.product
+        return kwargs
+
+    def form_valid(self, form):
+        new_status = form.cleaned_data['to_status']
+        new_status_name = form.cleaned_data['new_status_name']
+
+        if new_status_name:
+            new_status, created = Status.objects.get_or_create(name=new_status_name)
+            if created:
+                # Create a new StatusTransition to remember the mapping
+                StatusTransition.objects.create(from_status=self.product.current_status, to_status=new_status)
+
+        # Transition to the new status
+        self.product.current_status = new_status
+        self.product.save()
+
+        return redirect('product_detail', pk=self.product.pk)

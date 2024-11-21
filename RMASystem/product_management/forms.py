@@ -17,7 +17,7 @@ class CategoryForm(forms.ModelForm):
 class StatusForm(forms.ModelForm):
     class Meta:
         model = Status
-        fields = ['status', 'description',]
+        fields = ['status', 'description','is_initial', 'is_final']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -25,7 +25,11 @@ class StatusForm(forms.ModelForm):
         self.helper.form_method = 'post'
         self.helper.add_input(Submit('submit', 'Submit'))
 
+
+
 class StatusTransitionForm(forms.ModelForm):
+    new_status_name = forms.CharField(max_length=100, required=False, label="Or Create New Status")
+
     class Meta:
         model = StatusTransition
         fields = ['from_status', 'to_status']
@@ -36,10 +40,25 @@ class StatusTransitionForm(forms.ModelForm):
         self.helper.form_method = 'post'
         self.helper.add_input(Submit('submit', 'Submit'))
 
+    def clean(self):
+        cleaned_data = super().clean()
+        new_status_name = cleaned_data.get('new_status_name')
+        to_status = cleaned_data.get('to_status')
+
+        if not to_status and not new_status_name:
+            raise forms.ValidationError("You must choose an existing status or create a new one.")
+
+        if new_status_name:
+            new_status, created = Status.objects.get_or_create(name=new_status_name)
+            cleaned_data['to_status'] = new_status
+
+        return cleaned_data
+
+
 class TaskForm(forms.ModelForm):
     class Meta:
         model = Task
-        fields = ['action', 'description', 'can_be_skipped', 'result', 'note']
+        fields = ['action', 'description', 'result', 'note']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
