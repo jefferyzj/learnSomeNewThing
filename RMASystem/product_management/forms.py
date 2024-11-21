@@ -1,7 +1,7 @@
 from django import forms
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Submit
-from .models import Product, Category, Status, Task, ProductTask, StatusTask, Location, StatusTransition
+from .models import Product, Category, Status, Task, ProductTask, StatusTask, Location, StatusTransition, ProductStatus
 
 class CategoryForm(forms.ModelForm):
     class Meta:
@@ -17,15 +17,13 @@ class CategoryForm(forms.ModelForm):
 class StatusForm(forms.ModelForm):
     class Meta:
         model = Status
-        fields = ['status', 'description','is_initial', 'is_final']
+        fields = ['name', 'description', 'is_closed']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.helper = FormHelper()
         self.helper.form_method = 'post'
         self.helper.add_input(Submit('submit', 'Submit'))
-
-
 
 class StatusTransitionForm(forms.ModelForm):
     new_status_name = forms.CharField(max_length=100, required=False, label="Or Create New Status")
@@ -54,7 +52,6 @@ class StatusTransitionForm(forms.ModelForm):
 
         return cleaned_data
 
-
 class TaskForm(forms.ModelForm):
     class Meta:
         model = Task
@@ -69,7 +66,7 @@ class TaskForm(forms.ModelForm):
 class ProductTaskForm(forms.ModelForm):
     class Meta:
         model = ProductTask
-        fields = ['product', 'task', 'is_completed', 'is_skipped', 'is_default']
+        fields = ['product', 'task', 'is_completed', 'is_skipped', 'is_predefined']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -80,7 +77,7 @@ class ProductTaskForm(forms.ModelForm):
 class StatusTaskForm(forms.ModelForm):
     class Meta:
         model = StatusTask
-        fields = ['status', 'task', 'is_predefined', 'order']
+        fields = ['status', 'task', 'is_predefined']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -108,7 +105,7 @@ class ProductForm(forms.ModelForm):
 
         # Check if all required tasks are completed before changing the status
         if current_status != product.current_status:
-            incomplete_tasks = product.tasks.filter(producttask__is_completed=False, task__can_be_skipped=False)
+            incomplete_tasks = product.tasks_of_product.filter(is_completed=False, task__can_be_skipped=False)
             if incomplete_tasks.exists():
                 raise forms.ValidationError("All required tasks must be completed or removed before changing the status.")
 
@@ -143,3 +140,14 @@ class LocationForm(forms.ModelForm):
             if num_layers and num_spaces_per_layer:
                 Location.create_rack_with_layers_and_spaces(location.rack_name, num_layers, num_spaces_per_layer)
         return location
+
+class ProductStatusForm(forms.ModelForm):
+    class Meta:
+        model = ProductStatus
+        fields = ['product', 'status']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_method = 'post'
+        self.helper.add_input(Submit('submit', 'Submit'))

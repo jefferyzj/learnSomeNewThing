@@ -1,8 +1,8 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.views.generic import View, DetailView, ListView, UpdateView, CreateView, FormView
 from django.urls import reverse_lazy
-from .models import Product, ProductTask, Category, ResultOfStatus, Task, Location
-from .forms import ProductForm, ProductTaskForm, TaskForm, StatusTaskForm, LocationForm
+from .models import Product, ProductTask, Category, Task, Location
+from .forms import ProductForm, ProductTaskForm, TaskForm, LocationForm
 from .models import Product, Status, StatusTransition
 from .forms import StatusTransitionForm
 
