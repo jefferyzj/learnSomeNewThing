@@ -5,6 +5,8 @@ from model_utils.models import TimeStampedModel, SoftDeletableModel
 import uuid
 from .utilhelpers import PRIORITY_LEVEL_CHOICES
 from ordered_model.models import OrderedModel
+from django.db.models import Q
+
 
 class Category(models.Model):
     name = models.CharField(max_length=100)
@@ -60,22 +62,10 @@ class Task(TimeStampedModel):
         blank=True, 
         null=True
     )
-    result = models.TextField(
-        default="Action Not Yet Done", 
-        help_text="Result of the task", 
-        blank=True, 
-        null=True
-    )
-    note = models.TextField(
-        help_text="User can write down some notes on this task", 
-        blank=True, 
-        null=True
-    )
+
 
     def __str__(self):
-        result = self.result if self.result else "Not yet done"
-        note = f" | Note: {self.note}" if self.note else ""
-        return f"This Task: Action: {self.action} | Result: {result} | Note: {note}."
+        return f"This Task: Action: {self.action} | description: {self.description}."
 
 class StatusTask(OrderedModel):
     status = models.ForeignKey(Status, related_name='status_tasks', on_delete=models.CASCADE)
@@ -93,14 +83,65 @@ class StatusTask(OrderedModel):
     
 class ProductTask(TimeStampedModel):
     product = models.ForeignKey('Product', related_name='tasks_of_product', on_delete=models.CASCADE)
-    task = models.ForeignKey(Task, related_name='products_of_task', on_delete=models.CASCADE)
+    task = models.ForeignKey('Task', related_name='products_of_task', on_delete=models.CASCADE)
     is_completed = models.BooleanField(default=False)
     is_skipped = models.BooleanField(default=False)
     is_predefined = models.BooleanField(default=False, help_text="Indicates if the task was added automatically")
     unique_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
-    
+    result = models.TextField(
+        default="Action Not Yet Done", 
+        help_text="Result of the task of the product", 
+        blank=True, 
+        null=True
+    )
+    note = models.TextField(
+        help_text="User can write down some notes on this task of this product", 
+        blank=True, 
+        null=True
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['product', 'task'],
+                condition=models.Q(is_completed=False, is_skipped=False),
+                name='unique_active_product_task'
+            )
+        ]
+
     def __str__(self):
         return f'{self.product.SN} - {self.task.action} (UUID: {self.unique_id})'
+    
+    def update_task(self, is_now_completed=False, is_now_skipped=False, result=None, note=None):
+        if not self.is_completed and not self.is_skipped:
+            self.is_completed = is_now_completed
+            self.is_skipped = is_now_skipped
+            if result is not None:
+                self.result = result
+        if note is not None:
+            self.note = note
+        self.save()
+
+        #if update the current task as completed or skipped, then we need to locate the current task of the product
+        if is_now_completed or is_now_skipped:
+            self.product.locate_current_task()
+
+        
+
+    def skip_task(self):
+        if self.is_completed or self.is_skipped:
+            raise ValueError("Cannot skip a task that has already been completed or skipped.")
+        
+        #set the task as skipped
+        self.is_skipped = True
+        #append the 'Skipped' to the front of the result
+        self.result = f'Skipped - {self.result}'
+        self.save()
+
+        if self.product.current_task == self.task:
+            self.product.current_task = self.product.locate_current_task()
+            self.product.save(update_fields=['current_task'])
+        
     
 class ProductStatus(TimeStampedModel):
     product = models.ForeignKey('Product', related_name='status_history_of_product', on_delete=models.CASCADE)
@@ -137,6 +178,9 @@ class Product(TimeStampedModel, SoftDeletableModel):
     category = models.ForeignKey('Category', related_name='products', on_delete=models.CASCADE)
     priority_level = models.CharField(max_length=10, choices=PRIORITY_LEVEL_CHOICES, default='normal', help_text="Indicates if the unit is Normal, Hot, or ZFA")
     description = models.TextField(blank=True, help_text="Notes or description of the product")
+    
+    #here the current_status map to the Status model, and the current_task map to the Task model
+    #Take care of the case that we actually need productStatus and productTask instances instead
     current_status = models.ForeignKey('Status', related_name='ALL_products', on_delete=models.CASCADE, null=True, blank=True)
     current_task = models.ForeignKey('Task', related_name='All_products', on_delete=models.SET_NULL, null=True, blank=True)
     location = models.OneToOneField('Location', on_delete=models.CASCADE, related_name='product', null=True, blank=True)
@@ -179,13 +223,19 @@ class Product(TimeStampedModel, SoftDeletableModel):
                 # Save the changes
                 self.save(update_fields=['location', 'current_task'])
 
+    #every time before we call this method, we need to make sure that the current_task is not None or the producttask of current_task is inactivated already.
+    #return the current task of the product after locating
     def locate_current_task(self):
-        first_uncompleted_task = self.tasks_of_product.filter(is_completed=False).select_related('task__statustask').order_by('task__statustask__order').first()
-        new_current_task = first_uncompleted_task.task if first_uncompleted_task else None
+        
+        first_active_producttask = self.tasks_of_product.filter(is_completed=False, is_skipped = False).select_related('task__statustask').order_by('task__statustask__order').first()
+        current_producttask = self.tasks_of_product.filter(task=self.current_task).first()
+        new_current_productTask = first_active_producttask if first_active_producttask else None
 
-        if self.current_task != new_current_task:
-            self.current_task = new_current_task
+        if current_producttask != new_current_productTask:
+            self.current_task = new_current_productTask.task if new_current_productTask else None
             self.save(update_fields=['current_task'])
+
+        return self.current_task
 
     def assign_predefined_tasks_by_status(self):
         status_tasks_predefined = self.current_status.status_tasks.filter(is_predefined=True).order_by('order')
@@ -201,15 +251,15 @@ class Product(TimeStampedModel, SoftDeletableModel):
                 defaults={'is_predefined': set_as_predefined_of_status}
             )
         # Create a ProductTask for the product
-        ProductTask.objects.create(product=self, task=task, is_predefined=False)
+        ProductTask.objects.create(product=self, task=task, is_predefined=set_as_predefined_of_status)
 
     def insert_task_at_position(self, task, position, set_as_predefined_of_status=False):
         # Get the number of completed tasks
-        num_completed_tasks = self.tasks_of_product.filter(is_completed=True).count()
+        num_inactive_tasks = self.tasks_of_product.filter(Q(is_completed=True) | Q(is_skipped = True)).count()
 
         # Check if the target position is within the range of completed tasks
-        if position <= num_completed_tasks:
-            raise ValueError("Cannot insert a task at a position within the range of completed tasks.")
+        if position <= num_inactive_tasks:
+            raise ValueError("Cannot insert a task at a position within the range of completed or skipped tasks.")
 
         # Create the new task at the specified position
         status_task = StatusTask.objects.create(
@@ -224,43 +274,19 @@ class Product(TimeStampedModel, SoftDeletableModel):
         # Assign the task to the product
         ProductTask.objects.create(product=self, task=task, is_predefined=set_as_predefined_of_status)
 
-    def get_all_tasks(self, only_not_completed_yet=False):
+    def get_all_tasks(self, only_active=False):
         tasks = self.tasks_of_product.select_related('task__statustask__status').order_by(
             'task__statustask__status__created', 'task__statustask__order'
         )
-        if only_not_completed_yet:
-            tasks = tasks.filter(is_completed=False)
+        if only_active:
+            tasks = tasks.filter(is_completed=False, is_skipped=False)
         return tasks
 
 
     def get_ongoing_task(self):
-        return self.current_task
+        return self.task_of_product.filter(Q(task = self.current_task) and Q(is_completed = False) and Q(is_skipped = False))
 
-    def skip_task(self, task):
-        self.tasks_of_product.filter(task=task).update(
-            is_completed=True, 
-            is_skipped=True,
-            result="Skipped"
-        )
-        if self.current_task == task:
-            self.current_task = None
-            self.save()
 
-    def update_current_task(self, is_finished=False, result=None, modified_action=None):
-        product_task = self.tasks_of_product.filter(task=self.current_task).first()
-        if product_task:
-            product_task.is_completed = is_finished
-            if result is not None:
-                product_task.result = result
-            product_task.save()
-
-            if modified_action:
-                task = product_task.task
-                task.action = modified_action
-                task.save()
-
-            if is_finished:
-                self.locate_current_task()
 
     def get_possible_next_statuses(self):
         return self.current_status.get_possible_next_statuses()

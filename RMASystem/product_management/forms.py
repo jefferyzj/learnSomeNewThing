@@ -55,7 +55,7 @@ class StatusTransitionForm(forms.ModelForm):
 class TaskForm(forms.ModelForm):
     class Meta:
         model = Task
-        fields = ['action', 'description', 'result', 'note']
+        fields = ['action', 'description']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -66,7 +66,7 @@ class TaskForm(forms.ModelForm):
 class ProductTaskForm(forms.ModelForm):
     class Meta:
         model = ProductTask
-        fields = ['product', 'task', 'is_completed', 'is_skipped', 'is_predefined']
+        fields = ['product', 'task', 'result', 'note','is_completed', 'is_skipped', 'is_predefined']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
